@@ -78,13 +78,6 @@ jobs:
         run: |
           sdkmanager "platforms;android-34" "build-tools;34.0.0" "cmake;3.22.1" "ndk;29.0.13599879"
 
-      - name: Check out SDL3
-        uses: actions/checkout@v4
-        with:
-          repository: libsdl-org/SDL
-          ref: release-3.2.24
-          path: _sdl3
-
       - name: Check out SDL_ttf
         uses: actions/checkout@v4
         with:
@@ -93,10 +86,19 @@ jobs:
           path: _sdl3_ttf
           submodules: recursive
 
-      - name: Set up Gradle 8.7
+      # Validate this repository's wrapper before checking out SDL3, whose
+      # Android sample contains a separate Gradle wrapper JAR.
+      - name: Set up Gradle 8.7 and validate project wrapper
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+
+      - name: Check out SDL3
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: release-3.2.24
+          path: _sdl3
 
       - name: Build Android debug APK
         working-directory: platforms/android
