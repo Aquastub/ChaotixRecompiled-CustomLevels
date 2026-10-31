@@ -42,3 +42,17 @@ campaign feature.
 - `RENAME CAMPAIGN`: type a name.
 - `ADD CURRENT LEVEL`: first configure the desired stage in LEVEL SELECT.
 - `PLAY CAMPAIGN`: run the ordered playlist.
+
+## Automated Windows and Android test builds
+
+The GitHub Actions workflow `Windows and Android test builds` runs on pushes
+to `main`/`master`, pull requests, and manual dispatches. It publishes:
+
+- `ChaotixRecompiled-Windows-x64-test` — Windows x64 frontend executable.
+- `ChaotixRecompiled-Android-arm64-debug` — installable arm64-v8a debug APK.
+
+These are **test builds**. CI does not contain or download a Knuckles' Chaotix
+ROM, so it builds the interpreter-only configuration when generated game code
+is absent. The app still requires the user to provide their own ROM. Artifacts
+are retained by GitHub Actions for 14 days; open the workflow run and download
+its Artifacts section.

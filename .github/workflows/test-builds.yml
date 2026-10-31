@@ -1,0 +1,113 @@
+name: Windows and Android test builds
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x64 test build
+    runs-on: windows-latest
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Check out SDL3
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: release-3.2.24
+          path: _sdl3
+
+      - name: Check out SDL_ttf
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL_ttf
+          ref: release-3.2.2
+          path: _sdl3_ttf
+          submodules: recursive
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DCHAOTIX_SDL3_SOURCE_DIR=${{ github.workspace }}/_sdl3
+          -DCHAOTIX_SDL3_TTF_SOURCE_DIR=${{ github.workspace }}/_sdl3_ttf
+          -DCHAOTIX_BUILD_TOOLS=OFF
+          -DCHAOTIX_BUILD_TESTS=OFF
+          -DSDL_SHARED=OFF
+          -DSDL_STATIC=ON
+          -DSDLTTF_VENDORED=ON
+          -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build Windows frontend
+        run: cmake --build build --config Release --target chaotix
+
+      - name: Upload Windows test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChaotixRecompiled-Windows-x64-test
+          path: build/Release/ChaotixRecompiled.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    name: Android arm64-v8a debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build tools
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "cmake;3.22.1" "ndk;29.0.13599879"
+
+      - name: Check out SDL3
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: release-3.2.24
+          path: _sdl3
+
+      - name: Check out SDL_ttf
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL_ttf
+          ref: release-3.2.2
+          path: _sdl3_ttf
+          submodules: recursive
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build Android debug APK
+        working-directory: platforms/android
+        run: >
+          gradle --no-daemon assembleDebug
+          -PSDL3_SOURCE_DIR=${{ github.workspace }}/_sdl3
+          -PSDL3_TTF_SOURCE_DIR=${{ github.workspace }}/_sdl3_ttf
+          -PABIS=arm64-v8a
+
+      - name: Upload Android test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChaotixRecompiled-Android-arm64-debug
+          path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
