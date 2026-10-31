@@ -790,3 +790,8 @@ That covers this project's own work only. The bundled Inter font is under the
 SIL Open Font License, and SDL3 and SDL_ttf under Zlib; see
 [THIRD_PARTY.md](THIRD_PARTY.md). It does **not** grant you any rights to
 *Knuckles' Chaotix* itself, which remains Sega's ([LEGAL.md](LEGAL.md)).
+
+
+## Custom campaigns
+
+See [Campaign Studio](docs/CAMPAIGN_STUDIO.md) for the in-game campaign builder and current custom-level limitations.

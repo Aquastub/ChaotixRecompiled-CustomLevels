@@ -199,6 +199,11 @@ struct App {
     // A LEVEL SELECT session (issue #51): not timed; watched only to bring
     // the player back to the page when the level is over.
     level_select::Session ls;
+    std::vector<campaigns::Campaign> campaigns;
+    std::string campaigns_path;
+    std::vector<stage_select::Request> campaign_run;
+    size_t campaign_next = 0;
+    bool campaign_active = false;
     // Speedrun tools (issue #47): the run being timed, and its best splits
     // (Splits/ in the user data folder, per ROM).
     speedrun::Tracker run;
@@ -1278,6 +1283,32 @@ void follow_level_select(App& app) {
     if (!app.ls.update(*app.m)) return;
     LOGI("stage", "level select: over at frame %llu", (unsigned long long)app.m->frame_count);
     if (!return_to_title(app)) return;
+    if (app.campaign_active) {
+        ++app.campaign_next;
+        if (app.campaign_next < app.campaign_run.size()) {
+            const auto& r = app.campaign_run[app.campaign_next];
+            *app.title_snapshot = *app.m;
+            app.m->stage_request = r;
+            app.m->stage_pending = true;
+            app.handed_over = true;
+            app.stage_kick = 0;
+            app.ta.cancel();
+            stop_ghost(app);
+            app.ls.begin(r, false);
+            app.recorded_stages.push_back({app.m->frame_count, r, app.m->wide_extra,
+                                           app.m->wide_extra_bottom, app.cfg.six_button});
+            notice(app, "CAMPAIGN", "NEXT STAGE", "STAGE " + std::to_string(app.campaign_next + 1) +
+                   " OF " + std::to_string(app.campaign_run.size()));
+            return;
+        }
+        app.campaign_active = false;
+        app.campaign_run.clear();
+        app.campaign_next = 0;
+        app.menu.open_front();
+        app.menu.show_page("campaigns");
+        notice(app, "CAMPAIGN", "CAMPAIGN COMPLETE", "All stages have been played.");
+        return;
+    }
     app.menu.open_front();
     app.menu.show_page("levelselect");
     notice(app, "LEVEL SELECT", "LEVEL OVER", "Pick the next one, or press BACK.");
@@ -2270,6 +2301,8 @@ int main(int argc, char** argv) {
         std::filesystem::create_directories(user_dir, ec);
     }
     app.store = SaveStore(user_dir);
+    app.campaigns_path = user_dir + "Campaigns.txt";
+    campaigns::load(app.campaigns_path, app.campaigns);
     if (!app.cfg.load(app.store.config_file())) {
         app.cfg.set_defaults();
         app.cfg.save(app.store.config_file());
@@ -2520,9 +2553,39 @@ int main(int argc, char** argv) {
             app.recorded_stages.push_back({app.m->frame_count, r, app.m->wide_extra,
                                            app.m->wide_extra_bottom, app.cfg.six_button});
         };
+        hooks.campaigns = [&app] { return &app.campaigns; };
+        hooks.save_campaigns = [&app] { campaigns::save(app.campaigns_path, app.campaigns); };
+        hooks.start_campaign = [&app](const std::vector<stage_select::Request>& levels) {
+            if (app.net.on) { notice(app, "CAMPAIGN", "NOT DURING NETPLAY", "DISCONNECT FIRST."); return; }
+            if (levels.empty()) return;
+            app.campaign_run = levels;
+            app.campaign_next = 0;
+            app.campaign_active = true;
+            const auto& r = app.campaign_run.front();
+            if (app.handed_over) return_to_title(app);
+            if (!app.title_snapshot) app.title_snapshot = std::make_unique<Machine>();
+            *app.title_snapshot = *app.m;
+            app.m->stage_request = r;
+            app.m->stage_pending = true;
+            app.handed_over = true;
+            app.rewind.clear();
+            app.rewind_music.clear();
+            app.inject_start = 0;
+            app.stage_kick = 0;
+            app.ta.cancel();
+            stop_ghost(app);
+            speedrun_reset(app);
+            app.ls.begin(r, false);
+            app.recorded_stages.push_back({app.m->frame_count, r, app.m->wide_extra,
+                                           app.m->wide_extra_bottom, app.cfg.six_button});
+            notice(app, "CAMPAIGN", "STARTING CAMPAIGN", "STAGE 1 OF " + std::to_string(levels.size()));
+        };
         hooks.speedrun_start = [&app] { if (app.m) speedrun_start(app); };
         hooks.speedrun_reset = [&app] { if (app.m) speedrun_reset(app); };
         hooks.back_to_title = [&app] {
+            app.campaign_active = false;
+            app.campaign_run.clear();
+            app.campaign_next = 0;
             if (app.net.on) { notice(app, "NETPLAY", "NOT DURING NETPLAY", "DISCONNECT FIRST."); return; }
             if (return_to_title(app)) app.menu.open_front();
         };

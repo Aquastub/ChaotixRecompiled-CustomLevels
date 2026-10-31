@@ -14,6 +14,7 @@
 #include "frontend/jukebox.h"
 #include "platform/ui.h"
 #include "runtime/mod_packs.h"
+#include "runtime/campaigns.h"
 #include "runtime/stage_select.h"
 
 namespace chaotix {
@@ -57,6 +58,9 @@ public:
         // solo: PARTNER NONE (issue #55), the session played with the ring
         // tether's PARTNER SOLO; the request still names a partner.
         std::function<void(const stage_select::Request&, bool solo)> start_level;
+        std::function<std::vector<campaigns::Campaign>*()> campaigns;
+        std::function<void()> save_campaigns;
+        std::function<void(const std::vector<stage_select::Request>&)> start_campaign;
         // The front menu was closed (Escape, the menu button or the pad's back
         // button) instead of START GAME: the player goes on from the game's
         // own title screen.
@@ -215,7 +219,7 @@ private:
     // OPTIONS is a list of categories; each category is a page of its own, so
     // that no page runs off a phone's screen.
     enum class Page { Closed, Front, Main, Options, Video, Sound, Input, Extras, Controls, Keys, TimeAttack,
-                      Achievements, Cheats, States, StateKeys, Lobby, Mods, ModInfo, Music, Speedrun, Tether, Netplay, LevelSelect };
+                      Achievements, Cheats, States, StateKeys, Lobby, Mods, ModInfo, Music, Speedrun, Tether, Netplay, LevelSelect, Campaigns };
 
     struct Item {
         std::string label;
@@ -257,6 +261,7 @@ private:
     void build_time_attack();
     // LEVEL SELECT (issue #51).
     void build_level_select();
+    void build_campaigns();
     // The PLAYER and COMBI rows and the PLAYERS row TIME ATTACK and LEVEL
     // SELECT share, editing the settings given.
     // no_partner (LEVEL SELECT, issue #55): COMBI offers NONE after the

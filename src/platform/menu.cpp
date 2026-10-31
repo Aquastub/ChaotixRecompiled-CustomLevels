@@ -58,7 +58,7 @@ bool Menu::is_list_page(Page p) {
            p == Page::TimeAttack || p == Page::Cheats || p == Page::Video || p == Page::Sound ||
            p == Page::Input || p == Page::Extras || p == Page::Lobby || p == Page::Mods || p == Page::ModInfo ||
            p == Page::Music || p == Page::Speedrun || p == Page::Netplay ||
-           p == Page::Tether || p == Page::LevelSelect;
+           p == Page::Tether || p == Page::LevelSelect || p == Page::Campaigns;
 }
 
 // Where BACK and Escape go from a page below another one.
@@ -101,6 +101,7 @@ void Menu::set_page(Page p) {
     else if (p == Page::StateKeys) build_state_keys();
     else if (p == Page::TimeAttack) build_time_attack();
     else if (p == Page::LevelSelect) build_level_select();
+    else if (p == Page::Campaigns) build_campaigns();
     else if (p == Page::Cheats) build_cheats();
     else if (p == Page::Lobby) build_lobby();
     else if (p == Page::Tether) build_tether();
@@ -145,6 +146,7 @@ bool Menu::show_page(const std::string& name) {
     if (name == "front") { revealed_ = true; set_page(Page::Front); }  // asked for: shown at once
     else if (name == "timeattack") set_page(Page::TimeAttack);
     else if (name == "levelselect") set_page(Page::LevelSelect);
+    else if (name == "campaigns") set_page(Page::Campaigns);
     else if (name == "cheats") set_page(Page::Cheats);
     else if (name == "lobby") set_page(Page::Lobby);
     else if (name == "gameplay") set_page(Page::Tether);
@@ -184,6 +186,7 @@ std::string Menu::page_name() const {
     case Page::Keys: return "keys";
     case Page::TimeAttack: return "timeattack";
     case Page::LevelSelect: return "levelselect";
+    case Page::Campaigns: return "campaigns";
     case Page::Achievements: return "awards";
     case Page::Cheats: return "cheats";
     case Page::States: return "states";
@@ -233,6 +236,7 @@ void Menu::build_front() {
     }});
     items_.push_back({"TIME ATTACK", {}, [this](int) { set_page(Page::TimeAttack); }});
     items_.push_back({"LEVEL SELECT", {}, [this](int) { set_page(Page::LevelSelect); }});
+    items_.push_back({"CAMPAIGN STUDIO", {}, [this](int) { set_page(Page::Campaigns); }});
     items_.push_back({"OPTIONS", {}, [this](int) { set_page(Page::Options); }});
     items_.push_back({"CONTROLS", {}, [this](int) { set_page(Page::Controls); }});
     items_.push_back({"MUSIC PLAYER", {}, [this](int) { set_page(Page::Music); }});
@@ -253,6 +257,7 @@ void Menu::build_main() {
     items_.push_back({"STATES", {}, [this](int) { set_page(Page::States); }});
     items_.push_back({"OPTIONS", {}, [this](int) { set_page(Page::Options); }});
     items_.push_back({"CONTROLS", {}, [this](int) { set_page(Page::Controls); }});
+    items_.push_back({"CAMPAIGN STUDIO", {}, [this](int) { set_page(Page::Campaigns); }});
     items_.push_back({"AWARDS", {}, [this](int) { set_page(Page::Achievements); }});
     // Netplay (issue #46): to see how it goes, or to leave, in the middle of
     // a game.
@@ -701,6 +706,84 @@ void Menu::build_level_select() {
         if (hooks_.start_level) hooks_.start_level(r, solo);
     }, "practice: no clock, records or saving"});
     sc_.back_row = int(items_.size());
+    items_.push_back({"BACK", {}, [this](int) { const Page back = return_to_; set_page(back); }});
+}
+
+// CAMPAIGN STUDIO: build ordered playlists from the game's verified stage
+// select. These are playable campaigns; custom tile geometry is not yet
+// represented by this first native integration.
+void Menu::build_campaigns() {
+    items_.clear();
+    auto* list = hooks_.campaigns ? hooks_.campaigns() : nullptr;
+    if (!list) {
+        items_.push_back({"CAMPAIGNS UNAVAILABLE", {}, [](int) {}, "Campaign storage was not initialized."});
+        return;
+    }
+    if (campaign_index_ >= int(list->size())) campaign_index_ = int(list->size()) - 1;
+    if (campaign_index_ < 0) campaign_index_ = 0;
+    items_.push_back({"NEW CAMPAIGN", {}, [this, list](int) {
+        campaigns::Campaign c;
+        c.name = "My Campaign " + std::to_string(list->size() + 1);
+        list->push_back(std::move(c));
+        campaign_index_ = int(list->size()) - 1;
+        if (hooks_.save_campaigns) hooks_.save_campaigns();
+        refresh();
+    }, "Create a new playable stage playlist."});
+    if (list->empty()) {
+        items_.push_back({"NO CAMPAIGNS YET", {}, [](int) {}, "Create a campaign, then add stages from LEVEL SELECT settings."});
+    } else {
+        auto& c = (*list)[size_t(campaign_index_)];
+        items_.push_back({"CAMPAIGN",
+                          [this, list] {
+                              if (list->empty()) return std::string("--");
+                              const auto& v = *list;
+                              return v[size_t(std::clamp(campaign_index_, 0, int(v.size()) - 1))].name;
+                          },
+                          [this, list](int step) {
+                              if (!step || list->empty()) return;
+                              campaign_index_ = (campaign_index_ + step + int(list->size())) % int(list->size());
+                              refresh();
+                          }});
+        items_.push_back({"RENAME CAMPAIGN", [ &c ] { return c.name; }, [this, &c](int) {
+            begin_edit(&c.name, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _-.", 40,
+                       [this] { if (hooks_.save_campaigns) hooks_.save_campaigns(); refresh(); });
+        }, "Enter a name for this campaign."});
+        Item count{"LEVEL COUNT", [&c] { return std::to_string(c.levels.size()); }, [](int) {}, "Ordered stages in this campaign."};
+        count.read_only = true;
+        items_.push_back(std::move(count));
+        items_.push_back({"ADD CURRENT LEVEL", {}, [this, &c](int) {
+            if (!cfg_) return;
+            stage_select::Request r;
+            r.place = uint16_t(cfg_->ls_place);
+            r.level = uint16_t(cfg_->ls_level);
+            r.attime = uint16_t(cfg_->ls_time);
+            r.player = uint16_t(cfg_->ls_player);
+            r.combi = uint16_t(cfg_->ls_combi);
+            r.two_players = cfg_->ls_two_players;
+            if (!level_select::valid(r)) return;
+            c.levels.push_back(r);
+            if (hooks_.save_campaigns) hooks_.save_campaigns();
+            refresh();
+        }, "Uses PLACE, LEVEL, characters and AT-TIME from LEVEL SELECT."});
+        items_.push_back({"REMOVE LAST LEVEL", {}, [this, &c](int) {
+            if (!c.levels.empty()) c.levels.pop_back();
+            if (hooks_.save_campaigns) hooks_.save_campaigns();
+            refresh();
+        }, "Remove the final stage in the playlist."});
+        items_.push_back({"PLAY CAMPAIGN", {}, [this, &c](int) {
+            if (c.levels.empty()) return;
+            const auto levels = c.levels;
+            close();
+            if (hooks_.start_campaign) hooks_.start_campaign(levels);
+        }, "Play every stage in order. Each stage uses the game's native level engine."});
+        items_.push_back({"DELETE CAMPAIGN", {}, [this, list](int) {
+            if (list->empty()) return;
+            list->erase(list->begin() + campaign_index_);
+            campaign_index_ = std::max(0, campaign_index_ - 1);
+            if (hooks_.save_campaigns) hooks_.save_campaigns();
+            refresh();
+        }, "Permanently delete this campaign."});
+    }
     items_.push_back({"BACK", {}, [this](int) { const Page back = return_to_; set_page(back); }});
 }
 
@@ -1309,6 +1392,7 @@ void Menu::refresh() {
     info_lines_.clear();
     if (page_ == Page::Mods) build_mods();
     else if (page_ == Page::ModInfo) build_mod_info();
+    else if (page_ == Page::Campaigns) build_campaigns();
     selected_ = items_.empty() ? 0 : std::clamp(keep, 0, int(items_.size()) - 1);
     scroll_ = top;
 }
